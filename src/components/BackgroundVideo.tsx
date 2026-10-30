@@ -9,10 +9,39 @@ export function BackgroundVideo() {
   const targetTimeRef = useRef<number>(0);
   const isSeekingRef = useRef<boolean>(false);
   const prevXRef = useRef<number | null>(null);
+  const hasPrimedRef = useRef<boolean>(false);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    // Decode and prime the first frame so the vibrant red visual renders immediately on load
+    const primeFirstFrame = () => {
+      if (hasPrimedRef.current) return;
+      hasPrimedRef.current = true;
+
+      // Force video frame decode on muted video
+      video.currentTime = 0.01;
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            video.pause();
+            video.currentTime = 0.01;
+          })
+          .catch(() => {
+            video.currentTime = 0.01;
+          });
+      }
+    };
+
+    video.addEventListener('loadeddata', primeFirstFrame);
+    video.addEventListener('canplay', primeFirstFrame);
+    video.addEventListener('loadedmetadata', primeFirstFrame);
+
+    if (video.readyState >= 2) {
+      primeFirstFrame();
+    }
 
     const requestNextSeek = () => {
       if (!video || !video.duration || isNaN(video.duration)) return;
@@ -46,6 +75,12 @@ export function BackgroundVideo() {
       prevXRef.current = null;
     };
 
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches[0]) {
+        prevXRef.current = e.touches[0].clientX;
+      }
+    };
+
     const handleTouchMove = (e: TouchEvent) => {
       if (!e.touches[0]) return;
       const clientX = e.touches[0].clientX;
@@ -72,12 +107,17 @@ export function BackgroundVideo() {
 
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
     window.addEventListener('mouseleave', handleMouseLeave);
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
     window.addEventListener('touchend', handleTouchEnd);
 
     return () => {
+      video.removeEventListener('loadeddata', primeFirstFrame);
+      video.removeEventListener('canplay', primeFirstFrame);
+      video.removeEventListener('loadedmetadata', primeFirstFrame);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
@@ -96,13 +136,27 @@ export function BackgroundVideo() {
 
   const handleLoadedMetadata = () => {
     const video = videoRef.current;
-    if (video) {
-      targetTimeRef.current = video.currentTime || 0;
+    if (video && video.duration) {
+      if (targetTimeRef.current === 0) {
+        targetTimeRef.current = 0.01;
+        video.currentTime = 0.01;
+      }
     }
   };
 
   return (
     <>
+      {/* Permanent luxury red silk backdrop so the red ambiance is 100% visible instantly */}
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(circle at 70% 50%, #ba151c 0%, #800a10 40%, #450307 75%, #0d0102 100%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Mouse & Touch scrub-controlled Video element */}
       <video
         ref={videoRef}
         src={VIDEO_SRC}
@@ -119,11 +173,6 @@ export function BackgroundVideo() {
           objectFit: 'cover',
           objectPosition: '70% center',
         }}
-      />
-      {/* Subtle darkening scrim for high legibility while preserving full video detail */}
-      <div
-        className="fixed inset-0 z-0 pointer-events-none bg-black/25"
-        aria-hidden="true"
       />
     </>
   );
